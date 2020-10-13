@@ -20,6 +20,10 @@ plt.style.use('seaborn-pastel')
 
 #region Functions:
 
+def onClick(event):
+    global pause
+    pause ^= True
+    return pause
 
 def unique_excel_filename(data_filename_identifier):
     excel_filename = str(datetime.datetime.now().year) + '.' + str(datetime.datetime.now().month) + '.' + str(
@@ -39,13 +43,23 @@ def save_testdata_to_xls(data,list_of_variables,excel_filename):
     #dataframe with data
 
 
+
+    min=len(data[0])
+    for i in range(len(data)):
+        if len(data[i])<min:
+            min=len(data[i])
+
+    for i in range(len(data)):
+        data[i]=data[i][:min]
+
     df_data = pd.DataFrame(data[0], columns=['Relative Time - [s]'])
     df_data['Absolute time']=data[1]
 
-    for i in range(len(data[2:])):
+
+    for i in range(len(data[2:])-1):
         df_data[list_of_variables[i]] = data[i + 2]
 
-    path = os.path.dirname(__file__) + '/data'
+    path=os.path.dirname(os.path.abspath(__file__)) + '\\data'
 
     df_data.to_excel((path + '/' + excel_filename), sheet_name='Sheet_name_1')
 
@@ -54,6 +68,8 @@ def save_testdata_to_xls(data,list_of_variables,excel_filename):
 def initialize_graph(fig_title,fig_size,list_of_variables,list_of_subplots):
     fig=plt.figure(figsize=fig_size)
     fig.suptitle(fig_title)
+    pause=False
+    fig.canvas.mpl_connect('button_press_event', onClick)
 
     ax_list=[]
     for i in range(max(list_of_subplots)):
@@ -69,7 +85,7 @@ def initialize_graph(fig_title,fig_size,list_of_variables,list_of_subplots):
         list_of_lines[j][0].set_color((0.5, 0.2, (j / len(list_of_variables))))
     plt.ion()
     plt.show()
-    return fig,ax_list,list_of_lines
+    return fig,ax_list,list_of_lines, pause
 
 def initialize_data(list_of_variables):
     for j in range(len(list_of_variables) + 2):
@@ -113,60 +129,14 @@ def update_graph(sliding_window,data,ax_list,list_of_lines,plot_window=120):
     for ax in ax_list:
         ax.relim()
         ax.autoscale_view()
-    plt.draw()
-    plt.pause(0.001)
+    plt.show()
+    plt.pause(0.0001)
     return data,ax_list,list_of_lines
 
-def serial_daq(port,list_of_variables,list_of_subplots,sliding_window,plot_window=120,auto_save_time=15*60,fig_title='Continuous Data Acquisition',fig_size=(20,10)):
-    # region Initialization:
 
-    # initializing buffer
-    data = initialize_data(list_of_variables)
-
-    # Initializing graph:
-    fig, ax_list, list_of_lines = initialize_graph(fig_title, fig_size, list_of_variables, list_of_subplots)
-
-    # Define xls filename
-    excel_filename = unique_excel_filename(data_filename_identifier)
-
-    # Serial port
-    ser = serial.Serial(port)
-    ser.flushInput()
-
-    # Initializing time vectors
-    t_0 = time.time()  # initial time
-    t_autosave = t_0  # last autosave time'
-
-    # endregion
-
-    # region Data Aquisition Loop:
-
-    while True:
-        try:
-            ser_bytes = ser.readline()
-            try:
-                data = decode_line(ser_bytes, data,t_0)
-            except:
-                print("Some data may be missing...")
-                continue
-            data, ax_list, list_of_lines = update_graph(sliding_window, data, ax_list, list_of_lines,plot_window)  # update graph
-
-            # check if autosave condition is met and, if so, save the data to xls
-            if time.time() - t_autosave >= auto_save_time:
-                df_data = save_testdata_to_xls(data, list_of_variables, excel_filename)
-                t_autosave = time.time()
-
-        except:
-            print("Keyboard Interrupt")
-
-            # save data to xls
-            df_data = save_testdata_to_xls(data, list_of_variables, excel_filename)
-            break
-
-    # endregion
-    return df_data
 
 #endregion 
+
 
 #region Inputs:
 
@@ -199,4 +169,52 @@ fig_size=(20,10)
 
 #endregion
 
-df_data=serial_daq(port,list_of_variables,list_of_subplots,sliding_window=sliding_window,plot_window=plot_window,auto_save_time=auto_save_time,fig_title=fig_title,fig_size=fig_size)
+
+# region Initialization:
+
+# initializing buffer
+data = initialize_data(list_of_variables)
+
+# Initializing graph:
+fig, ax_list, list_of_lines, pause = initialize_graph(fig_title, fig_size, list_of_variables, list_of_subplots)
+
+# Define xls filename
+excel_filename = unique_excel_filename(data_filename_identifier)
+
+# Serial port
+ser = serial.Serial(port)
+ser.flushInput()
+
+# Initializing time vectors
+t_0 = time.time()  # initial time
+t_autosave = t_0  # last autosave time'
+
+# endregion
+
+# region Data Aquisition Loop:
+
+while pause == False:
+    try:
+        ser_bytes = ser.readline()
+        try:
+            data = decode_line(ser_bytes, data, t_0)
+        except:
+            print("Some data may be missing...")
+            continue
+        data, ax_list, list_of_lines = update_graph(sliding_window, data, ax_list, list_of_lines,
+                                                    plot_window)  # update graph
+
+        # check if autosave condition is met and, if so, save the data to xls
+        if time.time() - t_autosave >= auto_save_time:
+            df_data = save_testdata_to_xls(data, list_of_variables, excel_filename)
+            t_autosave = time.time()
+
+    except:
+        print("Keyboard Interrupt")
+
+        # save data to xls
+        df_data = save_testdata_to_xls(data, list_of_variables, excel_filename)
+        break
+else:
+    print('Great Success!')
+    df_data = save_testdata_to_xls(data, list_of_variables, excel_filename)
